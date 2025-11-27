@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check } from "phosphor-react";
+import { Check, Trash, Fire } from "phosphor-react";
 import { api } from "../lib";
 import clsx from "clsx";
 
@@ -8,6 +8,9 @@ interface HabitsInfo {
     id: string;
     title: string;
     created_at: string;
+    _count: {
+      dayHabits: number;
+    };
   }[];
   completedHabits: string[];
 }
@@ -15,22 +18,23 @@ interface HabitsInfo {
 export function HabitList() {
   const [habitsInfo, setHabitsInfo] = useState<HabitsInfo>();
 
+  // Função separada para poder recarregar a lista depois
+  async function fetchHabits() {
+    const response = await api.get("day", {
+      params: {
+        date: new Date().toISOString(),
+      },
+    });
+    setHabitsInfo(response.data);
+  }
+
   useEffect(() => {
-    api
-      .get("day", {
-        params: {
-          date: new Date().toISOString(),
-        },
-      })
-      .then((response) => {
-        setHabitsInfo(response.data);
-      });
+    fetchHabits();
   }, []);
 
   async function handleToggleHabit(habitId: string) {
     const isHabitAlreadyCompleted =
       habitsInfo!.completedHabits.includes(habitId);
-
     let completedHabits: string[] = [];
 
     if (isHabitAlreadyCompleted) {
@@ -49,44 +53,94 @@ export function HabitList() {
     await api.patch(`/habits/${habitId}/toggle`);
   }
 
+  async function handleDeleteHabit(event: React.MouseEvent, habitId: string) {
+    event.stopPropagation(); // Importante: Impede o clique de "vazar" para o check
+
+    const confirm = window.confirm(
+      "Tem certeza que deseja apagar este hábito para sempre?"
+    );
+
+    if (confirm) {
+      try {
+        await api.delete(`/habits/${habitId}`);
+        await fetchHabits(); // Atualiza a tela sem precisar de F5
+      } catch (error) {
+        console.log(error);
+        alert("Erro ao tentar deletar.");
+      }
+    }
+  }
+
   return (
-    <div className="mt-6 flex flex-col gap-3">
+    <div className="mt-4 flex flex-col gap-3">
       {habitsInfo?.possibleHabits.map((habit) => {
         const isHabitCompleted = habitsInfo.completedHabits.includes(habit.id);
 
         return (
           <div
             key={habit.id}
-            onClick={() => handleToggleHabit(habit.id)}
-            className="flex items-center gap-3 group cursor-pointer"
+            className={clsx(
+              "relative flex items-center justify-between p-4 rounded-xl border transition-all duration-200 group",
+              {
+                "bg-slate-800 border-slate-700": !isHabitCompleted,
+                "bg-violet-900/20 border-violet-800": isHabitCompleted,
+              }
+            )}
           >
+            {/* Área clicável do Checkbox (Esquerda) */}
             <div
-              className={clsx(
-                "h-8 w-8 rounded-lg flex items-center justify-center border-2 transition-colors",
-                {
-                  "bg-green-500 border-green-500": isHabitCompleted,
-                  "bg-zinc-900 border-zinc-800 group-hover:border-violet-500":
-                    !isHabitCompleted,
-                }
-              )}
+              onClick={() => handleToggleHabit(habit.id)}
+              className="flex items-center gap-4 flex-1 cursor-pointer select-none"
             >
-              {isHabitCompleted && <Check size={20} className="text-white" />}
+              <div
+                className={clsx(
+                  "h-6 w-6 rounded-md flex items-center justify-center transition-all duration-300",
+                  {
+                    "bg-violet-500 scale-110": isHabitCompleted,
+                    "bg-slate-700 border border-slate-600": !isHabitCompleted,
+                  }
+                )}
+              >
+                {isHabitCompleted && (
+                  <Check size={16} className="text-white" weight="bold" />
+                )}
+              </div>
+
+              <div className="flex flex-col">
+                <span
+                  className={clsx("text-lg font-medium transition-colors", {
+                    "line-through text-slate-500": isHabitCompleted,
+                    "text-white": !isHabitCompleted,
+                  })}
+                >
+                  {habit.title}
+                </span>
+
+                {/* Contador de dias (Streak) */}
+                <div className="flex items-center gap-1 text-xs text-slate-400 mt-1">
+                  <Fire size={14} className="text-orange-500" weight="fill" />
+                  <span>{habit._count.dayHabits} dias</span>
+                </div>
+              </div>
             </div>
 
-            <span
-              className={clsx(
-                "text-xl font-semibold leading-tight group-hover:text-violet-300 transition-colors",
-                {
-                  "line-through text-zinc-400": isHabitCompleted,
-                  "text-white": !isHabitCompleted,
-                }
-              )}
+            {/* Botão de Deletar (Direita) */}
+            <button
+              onClick={(e) => handleDeleteHabit(e, habit.id)}
+              className="text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors p-2 rounded-lg focus:outline-none"
+              title="Apagar hábito"
             >
-              {habit.title}
-            </span>
+              <Trash size={20} />
+            </button>
           </div>
         );
       })}
+
+      {habitsInfo?.possibleHabits.length === 0 && (
+        <p className="text-slate-500 text-center py-10">
+          Você não tem hábitos para hoje.
+        </p>
+      )}
     </div>
   );
 }

@@ -5,7 +5,10 @@ import { PrismaClient } from "@prisma/client";
 const app = Fastify();
 const prisma = new PrismaClient();
 
-app.register(cors);
+app.register(cors, {
+  origin: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+});
 
 app.post("/habits", async (request) => {
   const { title, weekDays } = request.body as {
@@ -28,12 +31,16 @@ app.post("/habits", async (request) => {
   return habit;
 });
 
+/**
+ * Rota 2: Listar Hábitos (Com Contagem/Streak)
+ */
 app.get("/day", async (request) => {
   const { date } = request.query as { date: string };
 
   const parsedDate = new Date(date);
   const weekDay = parsedDate.getDay();
 
+  // Busca todos os hábitos possíveis no dia da semana
   const possibleHabits = await prisma.habit.findMany({
     where: {
       weekDays: {
@@ -42,8 +49,17 @@ app.get("/day", async (request) => {
         },
       },
     },
+    include: {
+      // Conta quantas vezes esse hábito foi completado na história
+      _count: {
+        select: {
+          dayHabits: true,
+        },
+      },
+    },
   });
 
+  // Busca quais já foram marcados hoje
   const day = await prisma.day.findUnique({
     where: {
       date: parsedDate,
@@ -62,6 +78,9 @@ app.get("/day", async (request) => {
   };
 });
 
+/**
+ * Rota 3: Marcar/Desmarcar (Check)
+ */
 app.patch("/habits/:id/toggle", async (request) => {
   const { id } = request.params as { id: string };
 
@@ -107,10 +126,34 @@ app.patch("/habits/:id/toggle", async (request) => {
   }
 });
 
+/**
+ * Rota 4: Deletar Hábito
+ */
+app.delete("/habits/:id", async (request) => {
+  const { id } = request.params as { id: string };
+
+  // 1. Apaga histórico de conclusões desse hábito
+  await prisma.dayHabit.deleteMany({
+    where: { habit_id: id },
+  });
+
+  // 2. Apaga a configuração de dias da semana
+  await prisma.habitWeekDays.deleteMany({
+    where: { habit_id: id },
+  });
+
+  // 3. Apaga o hábito em si
+  await prisma.habit.delete({
+    where: { id },
+  });
+
+  return { message: "Hábito deletado!" };
+});
+
 app
   .listen({
     port: 3333,
   })
   .then(() => {
-    console.log("Server running on port 3333 🚀");
+    console.log("server running on port 3333");
   });
